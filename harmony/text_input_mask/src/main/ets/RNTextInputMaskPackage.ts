@@ -1,5 +1,6 @@
 import { RNPackage, TurboModulesFactory } from '@rnoh/react-native-openharmony/ts';
 import type { TurboModule, TurboModuleContext } from '@rnoh/react-native-openharmony/ts';
+// import { TM } from '@rnoh/react-native-openharmony/generated/ts'
 import { RNTextInputMaskTurboModule } from './RNTextInputMaskTurboModle';
 
 class RNTextInputMaskTurboModuleFactory extends TurboModulesFactory {

@@ -9,6 +9,7 @@
 #include <iostream>
 #include <jsi/jsi.h>
 #include <string>
+#include <thread>
 
 using namespace facebook;
 using namespace rnoh;
@@ -18,6 +19,7 @@ static constexpr int AVOIDENCE = 1;
 std::unordered_map<std::string, std::shared_ptr<RTLMask>> TinpMask::RTLMask::cache;
 std::unordered_map<std::string, std::shared_ptr<Mask>> TinpMask::Mask::MaskFactory::maskCache;
 void maybeThrow(int32_t status) {
+    DLOG(INFO) << "=====text change maybeThrow status: " << status;
     if (status != 0) {
         auto message = std::string("ArkUINode operation failed with status: ") + std::to_string(status);
         LOG(ERROR) << message;
@@ -45,28 +47,38 @@ void myEventReceiver(ArkUI_NodeEvent *event) {
         std::shared_ptr<CaretString::CaretGravity> caretGravity =
             isDelete ? std::make_shared<CaretString::CaretGravity>(CaretString::Backward(useAutoskip))
                      : std::make_shared<CaretString::CaretGravity>(CaretString::Forward(useAutocomplete));
-         CaretString text(content, content.length(), caretGravity);
-        auto maskObj = self->pickMask(text, userData->maskOptions, userData->primaryFormat);
-        auto result = maskObj->apply(text);
-        std::string resultString = result.formattedText.string;
-        DLOG(INFO) << "mask result complete: "<<result.complete;
-        userData->lastInputText = resultString;
-        std::string finalString = isDelete ? content : resultString;
-        ArkUI_AttributeItem item{.string = finalString.c_str()};
-        userData->lastInputText = finalString;
-        maybeThrow(NativeNodeApi::getInstance()->setAttribute(userData->data, NODE_TEXT_INPUT_TEXT, &item));
+        CaretString text(content, content.length(), caretGravity);
+        try {
+           // if (!isDelete) {
+                auto maskObj = self->pickMask(text, userData->maskOptions, userData->primaryFormat);
+                auto result = maskObj->apply(text);
+                std::string resultString = result.formattedText.string;
+                DLOG(INFO) << "mask result complete: " << result.complete;
+                userData->lastInputText = resultString;
+                std::string finalString = isDelete ? content : resultString;
+                ArkUI_AttributeItem item{.string = finalString.c_str()};
+                userData->lastInputText = finalString;
+                maybeThrow(NativeNodeApi::getInstance()->setAttribute(userData->data, NODE_TEXT_INPUT_TEXT, &item));
+            //}
+        } catch (FormatError e) {
+            DLOG(ERROR) << " mask complier error " << e.what();
+        }
     }
     // onFocus 事件
     if (eventId == 111) {
         if (userData->maskOptions.autocomplete.value()) {
             std::string text = "";
             text += content;
-            CaretString string(text, text.length(),
-                               std::make_shared<CaretString::Forward>(userData->maskOptions.autocomplete.value()));
-            auto maskObj = self->pickMask(string, userData->maskOptions, userData->primaryFormat);
-            std::string resultString = maskObj->apply(string).formattedText.string;
-            ArkUI_AttributeItem item{.string = resultString.c_str()};
-            maybeThrow(NativeNodeApi::getInstance()->setAttribute(userData->data, NODE_TEXT_INPUT_TEXT, &item));
+            try {
+                CaretString string(text, text.length(),
+                                   std::make_shared<CaretString::Forward>(userData->maskOptions.autocomplete.value()));
+                auto maskObj = self->pickMask(string, userData->maskOptions, userData->primaryFormat);
+                std::string resultString = maskObj->apply(string).formattedText.string;
+                ArkUI_AttributeItem item{.string = resultString.c_str()};
+                maybeThrow(NativeNodeApi::getInstance()->setAttribute(userData->data, NODE_TEXT_INPUT_TEXT, &item));
+            } catch (FormatError e) {
+                DLOG(ERROR) << " mask complier error " << e.what();
+            }
         }
     }
 }
@@ -157,13 +169,13 @@ void RNTextInputMask::setMask(int reactNode, std::string primaryFormat, MaskOpti
             return;
         }
         auto input = std::dynamic_pointer_cast<TextInputComponentInstance>(componentInstance);
-        if(!input){
+        if (!input) {
             throw std::runtime_error("find ComponentInstance failed,check the reactNode is Valid ");
         }
         ArkUINode &node = input->getLocalRootArkUINode();
         TextInputNode *textInputNode = dynamic_cast<TextInputNode *>(&node);
-        NativeNodeApi::getInstance()->registerNodeEvent(textInputNode->getArkUINodeHandle(),
-                                                        NODE_TEXT_INPUT_ON_CHANGE, 110, this);
+        NativeNodeApi::getInstance()->registerNodeEvent(textInputNode->getArkUINodeHandle(), NODE_TEXT_INPUT_ON_CHANGE,
+                                                        110, this);
         NativeNodeApi::getInstance()->registerNodeEvent(textInputNode->getArkUINodeHandle(), NODE_ON_FOCUS, 111, this);
 
         UserData *userData = new UserData({.data = textInputNode->getArkUINodeHandle(),
@@ -176,25 +188,32 @@ void RNTextInputMask::setMask(int reactNode, std::string primaryFormat, MaskOpti
     };
     this->m_ctx.taskExecutor->runTask(TaskThread::MAIN, std::move(task));
 }
+std::string getString(std::string maskValue, std::string value, bool autocomplete, bool isMask) {
+    Mask maskObj(maskValue);
+    CaretString text(value, value.length(), std::make_shared<CaretString::Forward>(autocomplete));
+    auto r = maskObj.apply(text);
+    std::string result;
+    if (isMask) {
+        result = r.formattedText.string;
+    } else {
+        result = r.extractedValue;
+    }
+    return result;
+}
 static jsi::Value __hostFunction_RNTextInputMask_unmask(jsi::Runtime &rt, react::TurboModule &turboModule,
                                                         const jsi::Value *args, size_t count) {
     std::string maskValue = args[0].getString(rt).utf8(rt);
     std::string value = args[1].getString(rt).utf8(rt);
     bool autocomplete = args[2].getBool();
-    Mask maskObj(maskValue);
-    CaretString text(value, value.length(), std::make_shared<CaretString::Forward>(autocomplete));
-    auto r = maskObj.apply(text);
-    auto promise = rt.global().getPropertyAsFunction(rt, "Promise");
-    return promise.callAsConstructor(
-        rt, jsi::Function::createFromHostFunction(
-                rt, jsi::PropNameID::forAscii(rt, "unmask"), 2,
-                [r](jsi::Runtime &runtime, const jsi::Value &thisValue, const jsi::Value *args, size_t) -> jsi::Value {
-                    auto resolve = std::make_shared<jsi::Value>(runtime, args[0]);
-                    auto reject = std::make_shared<jsi::Value>(runtime, args[1]);
-                    resolve->asObject(runtime).asFunction(runtime).call(runtime, r.extractedValue);
-                    reject->asObject(runtime).asFunction(runtime).call(runtime, "unmask error");
-                    return {};
-                }));
+    return createPromiseAsJSIValue(
+        rt, [maskValue, value, autocomplete](jsi::Runtime &rt2, std::shared_ptr<facebook::react::Promise> promise) {
+            try {
+                std::string result = getString(maskValue, value, autocomplete, 0);
+                promise->resolve(jsi::String::createFromUtf8(rt2, result));
+            } catch (FormatError e) {
+                promise->reject(e.what());
+            }
+        });
 }
 static jsi::Value __hostFunction_RNTextInputMask_mask(jsi::Runtime &rt, react::TurboModule &turboModule,
                                                       const jsi::Value *args, size_t count) {
@@ -202,21 +221,15 @@ static jsi::Value __hostFunction_RNTextInputMask_mask(jsi::Runtime &rt, react::T
     std::string maskValue = args[0].getString(rt).utf8(rt);
     std::string value = args[1].getString(rt).utf8(rt);
     bool autocomplete = args[2].getBool();
-    std::vector<Notation> emptyVector;
-    Mask maskObj(maskValue);
-    CaretString text(value, value.length(), std::make_shared<CaretString::Forward>(autocomplete));
-    auto r = maskObj.apply(text);
-    auto promise = rt.global().getPropertyAsFunction(rt, "Promise");
-    return promise.callAsConstructor(
-        rt, jsi::Function::createFromHostFunction(
-                rt, jsi::PropNameID::forAscii(rt, "mask"), 2,
-                [&r](jsi::Runtime &runtime, const jsi::Value &thisValue, const jsi::Value *args, size_t) -> jsi::Value {
-                    auto resolve = std::make_shared<jsi::Value>(runtime, args[0]);
-                    auto reject = std::make_shared<jsi::Value>(runtime, args[1]);
-                    resolve->asObject(runtime).asFunction(runtime).call(runtime, r.formattedText.string);
-                    reject->asObject(runtime).asFunction(runtime).call(runtime, "mask error");
-                    return {};
-                }));
+    return createPromiseAsJSIValue(
+        rt, [maskValue, value, autocomplete](jsi::Runtime &rt2, std::shared_ptr<facebook::react::Promise> promise) {
+            try {
+                std::string result = getString(maskValue, value, autocomplete, 1);
+                promise->resolve(jsi::String::createFromUtf8(rt2, result));
+            } catch (FormatError e) {
+                promise->reject(e.what());
+            }
+        });
 }
 
 static jsi::Value __hostFunction_RNTextInputMask_setMask(jsi::Runtime &rt, react::TurboModule &turboModule,

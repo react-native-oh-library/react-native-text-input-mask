@@ -56,7 +56,7 @@ typedef struct {
     MaskOptions maskOptions;
     std::string primaryFormat;
     int node;
-    std::string lastInputText = "";
+    std::string lastInputText ;
 } UserData;
 
 class JSI_EXPORT RNTextInputMask : public ArkTSTurboModule {

@@ -8,6 +8,7 @@
 #include "model/State.h"
 #include "FormatError.h"
 #include "FormatSanitizer.h"
+#include <glog/logging.h>
 
 namespace TinpMask {
 class FormatSanitizer;
@@ -108,43 +109,44 @@ public:
             if (customNotation.character == c) {
                 std::shared_ptr<State> compiledState = compile(str.substr(1), true, false, c);
                 if (customNotation.isOptional) {
-                    return std::make_unique<OptionalValueState>(std::move(compiledState),
-                                                                std::make_shared<OptionalValueState::Custom>(c, customNotation.characterSet));
+                    return std::make_unique<OptionalValueState>(
+                        std::move(compiledState),
+                        std::make_shared<OptionalValueState::Custom>(c, customNotation.characterSet));
                 } else {
-                    return std::make_unique<ValueState>(std::move(compiledState),
-                                                        std::make_shared<ValueState::Custom>(c, customNotation.characterSet));
+                    return std::make_unique<ValueState>(
+                        std::move(compiledState), std::make_shared<ValueState::Custom>(c, customNotation.characterSet));
                 }
             }
         }
-        throw FormatError();
+        DLOG(INFO) << "compileWithCustomNotations No Match Found ";
+        throw FormatError("compileWithCustomNotations No Match Found");
     }
-     std::shared_ptr<ValueState::ValueStateType> determineInheritedType(std::optional<char> lastCharacter) {
+    std::shared_ptr<ValueState::ValueStateType> determineInheritedType(std::optional<char> lastCharacter) {
         if (!lastCharacter.has_value()) {
             throw FormatError(); // 处理空字符情况，抛出异常
         }
-
         char character = lastCharacter.value();
         switch (character) {
-            case '0':
-            case '9':
-                return std::make_shared<ValueState::Numeric>();
+        case '0':
+        case '9':
+            return std::make_shared<ValueState::Numeric>();
 
-            case 'A':
-            case 'a':
-                return std::make_shared<ValueState::Literal>();
+        case 'A':
+        case 'a':
+            return std::make_shared<ValueState::Literal>();
 
-            case '_':
-            case '-':
-            case '...':
-            case '[':
-                return  std::make_shared<ValueState::AlphaNumeric>();
+        case '_':
+        case '-':
+        case '...':
+        case '[':
+            return std::make_shared<ValueState::AlphaNumeric>();
 
-            default:
-                return determineTypeWithCustomNotations(lastCharacter);
+        default:
+            return determineTypeWithCustomNotations(lastCharacter);
         }
     }
 
-     std::shared_ptr<ValueState::ValueStateType> determineTypeWithCustomNotations(std::optional<char> lastCharacter) {
+    std::shared_ptr<ValueState::ValueStateType> determineTypeWithCustomNotations(std::optional<char> lastCharacter) {
         if (!lastCharacter.has_value()) {
             throw FormatError(); // 处理空字符情况，抛出异常
         }
@@ -152,11 +154,12 @@ public:
         for (const auto &customNotation : customNotations) {
             if (customNotation.character == character) {
                 // 返回 Custom 状态
-                return  std::make_shared<ValueState::Custom>(lastCharacter.value(),customNotation.characterSet); // 可以根据需要调整返回内容
+                return std::make_shared<ValueState::Custom>(lastCharacter.value(),
+                                                            customNotation.characterSet); // 可以根据需要调整返回内容
             }
         }
-
-        throw FormatError(); // 未找到匹配项，抛出异常
+        DLOG(INFO) << "determineTypeWithCustomNotations No Match Found ";
+        throw FormatError("determineTypeWithCustomNotations No Match Found"); // 未找到匹配项，抛出异常
     }
 };
 } // namespace TinpMask
