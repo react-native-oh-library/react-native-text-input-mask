@@ -30,7 +30,6 @@ public:
                        ? std::numeric_limits<int>::min()
                        : extractedValue.length() - mask.totalValueLength();
         }
-
         default:
             throw std::invalid_argument("Unknown AffinityCalculationStrategy");
         }

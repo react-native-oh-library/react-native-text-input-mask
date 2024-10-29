@@ -105,14 +105,17 @@ public:
     }
 
     std::unique_ptr<State> compileWithCustomNotations(char c, const std::string &str) {
+         DLOG(ERROR) << "====== compileWithCustomNotations  customNotations size: " << customNotations.size();
         for (const auto &customNotation : customNotations) {
             if (customNotation.character == c) {
                 std::shared_ptr<State> compiledState = compile(str.substr(1), true, false, c);
                 if (customNotation.isOptional) {
+                    DLOG(ERROR) << "====== compileWithCustomNotations  customNotations isOptional :" << customNotation.isOptional;
                     return std::make_unique<OptionalValueState>(
                         std::move(compiledState),
                         std::make_shared<OptionalValueState::Custom>(c, customNotation.characterSet));
                 } else {
+                     DLOG(ERROR) << "======= compileWithCustomNotations  customNotations isOptional :" << customNotation.isOptional;
                     return std::make_unique<ValueState>(
                         std::move(compiledState), std::make_shared<ValueState::Custom>(c, customNotation.characterSet));
                 }
@@ -150,6 +153,7 @@ public:
         if (!lastCharacter.has_value()) {
             throw FormatError(); // 处理空字符情况，抛出异常
         }
+         DLOG(INFO) << "======determineTypeWithCustomNotations customNotations size: "<<customNotations.size();
         char character = lastCharacter.value();
         for (const auto &customNotation : customNotations) {
             if (customNotation.character == character) {
