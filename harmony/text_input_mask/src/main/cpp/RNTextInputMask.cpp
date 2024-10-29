@@ -1,3 +1,4 @@
+#pragma once
 #include "RNTextInputMask.h"
 #include "RNOH/arkui/TextInputNode.h"
 #include "RNOH/ComponentInstance.h"
@@ -49,19 +50,17 @@ void myEventReceiver(ArkUI_NodeEvent *event) {
                      : std::make_shared<CaretString::CaretGravity>(CaretString::Forward(useAutocomplete));
         CaretString text(content, content.length(), caretGravity);
         try {
-           // if (!isDelete) {
-                auto maskObj = self->pickMask(text, userData->maskOptions, userData->primaryFormat);
-                auto result = maskObj->apply(text);
-                std::string resultString = result.formattedText.string;
-                DLOG(INFO) << "mask result complete: " << result.complete;
-                userData->lastInputText = resultString;
-                std::string finalString = isDelete ? content : resultString;
-                ArkUI_AttributeItem item{.string = finalString.c_str()};
-                userData->lastInputText = finalString;
-                maybeThrow(NativeNodeApi::getInstance()->setAttribute(userData->data, NODE_TEXT_INPUT_TEXT, &item));
-            //}
+            auto maskObj = self->pickMask(text, userData->maskOptions, userData->primaryFormat);
+            auto result = maskObj->apply(text);
+            std::string resultString = result.formattedText.string;
+            DLOG(INFO) << "mask result complete: " << result.complete;
+            userData->lastInputText = resultString;
+            std::string finalString = isDelete ? content : resultString;
+            ArkUI_AttributeItem item{.string = finalString.c_str()};
+            userData->lastInputText = finalString;
+            maybeThrow(NativeNodeApi::getInstance()->setAttribute(userData->data, NODE_TEXT_INPUT_TEXT, &item));
         } catch (FormatError e) {
-            DLOG(ERROR) << " mask complier error " << e.what();
+            DLOG(ERROR) << " mask compiler error " << e.what();
         }
     }
     // onFocus 事件
@@ -73,11 +72,11 @@ void myEventReceiver(ArkUI_NodeEvent *event) {
                 CaretString string(text, text.length(),
                                    std::make_shared<CaretString::Forward>(userData->maskOptions.autocomplete.value()));
                 auto maskObj = self->pickMask(string, userData->maskOptions, userData->primaryFormat);
-                std::string resultString = maskObj->apply(string).formattedText.string;
+                std::string resultString = maskObj.get()->apply(string).formattedText.string;
                 ArkUI_AttributeItem item{.string = resultString.c_str()};
                 maybeThrow(NativeNodeApi::getInstance()->setAttribute(userData->data, NODE_TEXT_INPUT_TEXT, &item));
             } catch (FormatError e) {
-                DLOG(ERROR) << " mask complier error " << e.what();
+                DLOG(ERROR) << " mask compiler error " << e.what();
             }
         }
     }
@@ -94,7 +93,9 @@ int calculateAffinity(Mask mask, const CaretString &text, std::string affinityCa
     } else {
         strategy = AffinityCalculationStrategy::EXTRACTED_VALUE_CAPACITY;
     }
-    return AffinityCalculator::calculateAffinityOfMask(strategy, mask, text);
+    int affinity = AffinityCalculator::calculateAffinityOfMask(strategy, mask, text);
+
+    return affinity;
 }
 // 获取或创建 Mask
 std::shared_ptr<Mask> maskGetOrCreate(const std::string &format, const std::vector<Notation> &customNotations,
@@ -109,8 +110,13 @@ std::shared_ptr<Mask> maskGetOrCreate(const std::string &format, const std::vect
 std::shared_ptr<Mask> RNTextInputMask::pickMask(const CaretString &text, MaskOptions maskOptions,
                                                 std::string primaryMask) {
     // 如果 affineFormats 为空，直接返回 primaryMask
-    if (maskOptions.affineFormats->size() <= 0)
-        return maskGetOrCreate(primaryMask, maskOptions.customNotations.value(), maskOptions.rightToLeft.value());
+    if (maskOptions.affineFormats->size() <= 0) {
+        auto mask = maskGetOrCreate(primaryMask, maskOptions.customNotations.value(), maskOptions.rightToLeft.value());
+        int affinity = calculateAffinity(*mask, text, maskOptions.affinityCalculationStrategy.value());
+        DLOG(INFO) << " ======= pickMask calculateAffinity value： " << affinity
+                   << "\n affinityCalculationStrategy: " << maskOptions.affinityCalculationStrategy.value();
+        return mask;
+    }
     // 定义 MaskAffinity 结构体，用于存储 Mask 和相应的亲和度
     struct MaskAffinity {
         Mask mask;    // Mask 对象
@@ -120,7 +126,8 @@ std::shared_ptr<Mask> RNTextInputMask::pickMask(const CaretString &text, MaskOpt
 
     // 计算 primaryMask 的亲和度
     int primaryAffinity = calculateAffinity(primaryMask, text, maskOptions.affinityCalculationStrategy.value());
-
+    DLOG(INFO) << " ======= pickMask calculateAffinity value： " << primaryAffinity << " \n mask: " << primaryMask
+               << "\n affinityCalculationStrategy: " << maskOptions.affinityCalculationStrategy.value();
     // 存储所有 mask 和亲和度的列表
     std::vector<MaskAffinity> masksAndAffinities;
 
@@ -129,6 +136,8 @@ std::shared_ptr<Mask> RNTextInputMask::pickMask(const CaretString &text, MaskOpt
         std::shared_ptr<Mask> mask =
             maskGetOrCreate(format, maskOptions.customNotations.value(), maskOptions.rightToLeft.value());
         int affinity = calculateAffinity(*mask, text, maskOptions.affinityCalculationStrategy.value());
+        DLOG(INFO) << " ======= pickMask calculateAffinity value： " << affinity << "\n affineFormat: " << format
+                   << "\n affinityCalculationStrategy: " << maskOptions.affinityCalculationStrategy.value();
         masksAndAffinities.emplace_back(*mask, affinity);
     }
 
@@ -187,11 +196,13 @@ void RNTextInputMask::setMask(int reactNode, std::string primaryFormat, MaskOpti
         NativeNodeApi::getInstance()->addNodeEventReceiver(textInputNode->getArkUINodeHandle(), myEventReceiver);
     };
     this->m_ctx.taskExecutor->runTask(TaskThread::MAIN, std::move(task));
+
 }
 std::string getString(std::string maskValue, std::string value, bool autocomplete, bool isMask) {
-    Mask maskObj(maskValue);
+
+    auto maskObj = Mask::MaskFactory::getOrCreate(maskValue, {});
     CaretString text(value, value.length(), std::make_shared<CaretString::Forward>(autocomplete));
-    auto r = maskObj.apply(text);
+    auto r = maskObj->apply(text);
     std::string result;
     if (isMask) {
         result = r.formattedText.string;
@@ -208,8 +219,14 @@ static jsi::Value __hostFunction_RNTextInputMask_unmask(jsi::Runtime &rt, react:
     return createPromiseAsJSIValue(
         rt, [maskValue, value, autocomplete](jsi::Runtime &rt2, std::shared_ptr<facebook::react::Promise> promise) {
             try {
+                auto start = std::chrono::high_resolution_clock::now();
                 std::string result = getString(maskValue, value, autocomplete, 0);
                 promise->resolve(jsi::String::createFromUtf8(rt2, result));
+                // 获取结束时间点
+                auto end = std::chrono::high_resolution_clock::now();
+                // 计算延迟
+                std::chrono::duration<double, std::milli> latency = end - start;
+                DLOG(INFO) << "=======unmask 响应时长: " << latency.count() << " 毫秒" << std::endl;
             } catch (FormatError e) {
                 promise->reject(e.what());
             }
@@ -217,15 +234,20 @@ static jsi::Value __hostFunction_RNTextInputMask_unmask(jsi::Runtime &rt, react:
 }
 static jsi::Value __hostFunction_RNTextInputMask_mask(jsi::Runtime &rt, react::TurboModule &turboModule,
                                                       const jsi::Value *args, size_t count) {
-
     std::string maskValue = args[0].getString(rt).utf8(rt);
     std::string value = args[1].getString(rt).utf8(rt);
     bool autocomplete = args[2].getBool();
     return createPromiseAsJSIValue(
         rt, [maskValue, value, autocomplete](jsi::Runtime &rt2, std::shared_ptr<facebook::react::Promise> promise) {
             try {
+                auto start = std::chrono::high_resolution_clock::now();
                 std::string result = getString(maskValue, value, autocomplete, 1);
                 promise->resolve(jsi::String::createFromUtf8(rt2, result));
+                // 获取结束时间点
+                auto end = std::chrono::high_resolution_clock::now();
+                // 计算延迟
+                std::chrono::duration<double, std::milli> latency = end - start;
+                DLOG(INFO) << "=======mask 响应时长: " << latency.count() << " 毫秒" << std::endl;
             } catch (FormatError e) {
                 promise->reject(e.what());
             }
