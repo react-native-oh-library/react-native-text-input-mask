@@ -1,6 +1,6 @@
 {
   "name": "@react-native-oh-tpl/react-native-text-input-mask",
-  "version": "3.1.5-0.0.3",
+  "version": "3.1.5-0.0.4",
   "description": "Text input mask for React Native.",
   "main": "dist/index.js",
   "typings": "dist/index.d.ts",
