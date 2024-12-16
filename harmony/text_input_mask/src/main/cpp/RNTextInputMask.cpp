@@ -1,4 +1,9 @@
-#pragma once
+/*
+ * Copyright (c) 2024 Huawei Device Co., Ltd. All rights reserved
+ * Use of this source code is governed by a MIT license that can be
+ * found in the LICENSE file.
+ */
+
 #include "RNTextInputMask.h"
 #include "RNOH/arkui/TextInputNode.h"
 #include "RNOH/ComponentInstance.h"
@@ -29,16 +34,14 @@ void maybeThrow(int32_t status) {
 }
 
 void myEventReceiver(ArkUI_NodeEvent *event) {
-    auto self = reinterpret_cast<RNTextInputMask *>(OH_ArkUI_NodeEvent_GetUserData(event));
-    if (self == nullptr) {
-        return;
-    }
     int32_t eventId = OH_ArkUI_NodeEvent_GetTargetId(event);
     ArkUI_NodeHandle textNode = OH_ArkUI_NodeEvent_GetNodeHandle(event);
     void *data = NativeNodeApi::getInstance()->getUserData(textNode);
     auto item = NativeNodeApi::getInstance()->getAttribute(textNode, NODE_TEXT_INPUT_TEXT);
     std::string content = item->string;
     UserData *userData = reinterpret_cast<UserData *>(data);
+    auto self = userData->instance;
+    if (self == nullptr) { return; };
     bool isDelete = userData->lastInputText.size() > content.size();
     bool useAutocomplete = !isDelete ? userData->maskOptions.autocomplete.value() : false;
     bool useAutoskip = isDelete ? userData->maskOptions.autoskip.value() : false;
@@ -60,7 +63,7 @@ void myEventReceiver(ArkUI_NodeEvent *event) {
             userData->lastInputText = finalString;
             maybeThrow(NativeNodeApi::getInstance()->setAttribute(userData->data, NODE_TEXT_INPUT_TEXT, &item));
         } catch (FormatError e) {
-            DLOG(ERROR) << " mask compiler error " << e.what();
+            DLOG(ERROR) << " mask complier error " << e.what();
         }
     }
     // onFocus 事件
@@ -72,15 +75,16 @@ void myEventReceiver(ArkUI_NodeEvent *event) {
                 CaretString string(text, text.length(),
                                    std::make_shared<CaretString::Forward>(userData->maskOptions.autocomplete.value()));
                 auto maskObj = self->pickMask(string, userData->maskOptions, userData->primaryFormat);
-                std::string resultString = maskObj.get()->apply(string).formattedText.string;
+                std::string resultString = maskObj->apply(string).formattedText.string;
                 ArkUI_AttributeItem item{.string = resultString.c_str()};
                 maybeThrow(NativeNodeApi::getInstance()->setAttribute(userData->data, NODE_TEXT_INPUT_TEXT, &item));
             } catch (FormatError e) {
-                DLOG(ERROR) << " mask compiler error " << e.what();
+                DLOG(ERROR) << " mask complier error " << e.what();
             }
         }
     }
 }
+
 // 计算亲和度
 int calculateAffinity(Mask mask, const CaretString &text, std::string affinityCalculationStrategy) {
     AffinityCalculationStrategy strategy;
@@ -183,21 +187,22 @@ void RNTextInputMask::setMask(int reactNode, std::string primaryFormat, MaskOpti
         }
         ArkUINode &node = input->getLocalRootArkUINode();
         TextInputNode *textInputNode = dynamic_cast<TextInputNode *>(&node);
-        NativeNodeApi::getInstance()->registerNodeEvent(textInputNode->getArkUINodeHandle(), NODE_TEXT_INPUT_ON_CHANGE,
-                                                        110, this);
-        NativeNodeApi::getInstance()->registerNodeEvent(textInputNode->getArkUINodeHandle(), NODE_ON_FOCUS, 111, this);
-
         UserData *userData = new UserData({.data = textInputNode->getArkUINodeHandle(),
                                            .maskOptions = maskOptions,
                                            .primaryFormat = primaryFormat,
-                                           .node = reactNode});
+                                           .node = reactNode,
+                                           .instance = this});
+        NativeNodeApi::getInstance()->registerNodeEvent(textInputNode->getArkUINodeHandle(), NODE_TEXT_INPUT_ON_CHANGE,
+                                                        110, textInputNode);
+        NativeNodeApi::getInstance()->registerNodeEvent(textInputNode->getArkUINodeHandle(), NODE_ON_FOCUS, 111,
+                                                        textInputNode);
         this->m_userDatas.insert(userData);
         NativeNodeApi::getInstance()->setUserData(textInputNode->getArkUINodeHandle(), userData);
         NativeNodeApi::getInstance()->addNodeEventReceiver(textInputNode->getArkUINodeHandle(), myEventReceiver);
     };
     this->m_ctx.taskExecutor->runTask(TaskThread::MAIN, std::move(task));
-
 }
+
 std::string getString(std::string maskValue, std::string value, bool autocomplete, bool isMask) {
 
     auto maskObj = Mask::MaskFactory::getOrCreate(maskValue, {});
@@ -211,6 +216,7 @@ std::string getString(std::string maskValue, std::string value, bool autocomplet
     }
     return result;
 }
+
 static jsi::Value __hostFunction_RNTextInputMask_unmask(jsi::Runtime &rt, react::TurboModule &turboModule,
                                                         const jsi::Value *args, size_t count) {
     std::string maskValue = args[0].getString(rt).utf8(rt);
@@ -232,6 +238,7 @@ static jsi::Value __hostFunction_RNTextInputMask_unmask(jsi::Runtime &rt, react:
             }
         });
 }
+
 static jsi::Value __hostFunction_RNTextInputMask_mask(jsi::Runtime &rt, react::TurboModule &turboModule,
                                                       const jsi::Value *args, size_t count) {
     std::string maskValue = args[0].getString(rt).utf8(rt);
@@ -346,11 +353,21 @@ static jsi::Value __hostFunction_RNTextInputMask_setMask(jsi::Runtime &rt, react
 
 RNTextInputMask::RNTextInputMask(const ArkTSTurboModule::Context ctx, const std::string name)
     : ArkTSTurboModule(ctx, name) {
-    // methodMap_ = {{"setMask", {3, setMask}}};
     methodMap_["setMask"] = MethodMetadata{3, __hostFunction_RNTextInputMask_setMask};
     methodMap_["mask"] = MethodMetadata{3, __hostFunction_RNTextInputMask_mask};
     methodMap_["unmask"] = MethodMetadata{3, __hostFunction_RNTextInputMask_unmask};
 }
 
+RNTextInputMask::~RNTextInputMask() {
+    for (auto userData : m_userDatas) {
+        if (userData != nullptr) {
+            NativeNodeApi::getInstance()->unregisterNodeEvent(userData->data, NODE_TEXT_INPUT_ON_CHANGE);
+            NativeNodeApi::getInstance()->unregisterNodeEvent(userData->data, NODE_ON_FOCUS);
+            NativeNodeApi::getInstance()->removeNodeEventReceiver(userData->data, myEventReceiver);
+            delete userData;
+            userData = nullptr;
+        }
+    }
+}
 
 // namespace rnoh

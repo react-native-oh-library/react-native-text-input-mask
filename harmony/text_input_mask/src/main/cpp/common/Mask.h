@@ -1,3 +1,9 @@
+/*
+ * Copyright (c) 2024 Huawei Device Co., Ltd. All rights reserved
+ * Use of this source code is governed by a MIT license that can be
+ * found in the LICENSE file.
+ */
+
 #pragma once
 #include <string>
 #include <vector>
@@ -341,9 +347,9 @@ private:
             } else if (valueState->type->getName() == StateTypeName::AlphaNumeric) {
                 return appendPlaceholder(state->child.get(), placeholder + "-");
             } else if (valueState->type->getName() == StateTypeName::Custom) {
-                auto customValueState = dynamic_cast<OptionalValueState *>(state);
+                auto customValueState = dynamic_cast<ValueState *>(state);
                 if (customValueState->type.get()) {
-                    auto customStateType = dynamic_cast<OptionalValueState::Custom *>(customValueState->type.get());
+                    auto customStateType = dynamic_cast<ValueState::Custom *>(customValueState->type.get());
                     return appendPlaceholder(state->child.get(), placeholder + customStateType->character);
                 }else {
                     throw FormatError("appendPlaceholder customValueState type is null"); // 未找到匹配项，抛出异常 
