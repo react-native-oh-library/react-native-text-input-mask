@@ -21,5 +21,10 @@ public:
     bool isOptional;          // 是否可选
 
     // 其他方法和成员可以根据需要添加
+     bool operator==(const Notation& other) const {
+        return (this->character == other.character) &&
+               (this->characterSet == other.characterSet) &&
+               (this->isOptional == other.isOptional);
+    }
 };
 } // namespace TinpMask
