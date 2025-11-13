@@ -42,15 +42,18 @@ void myEventReceiver(ArkUI_NodeEvent *event) {
     UserData *userData = reinterpret_cast<UserData *>(data);
     auto self = userData->instance;
     if (self == nullptr) { return; };
-    bool isDelete = userData->lastInputText.size() > content.size();
+    bool isDelete = userData->lastInputText.size() >= content.size();
     bool useAutocomplete = !isDelete ? userData->maskOptions.autocomplete.value() : false;
     bool useAutoskip = isDelete ? userData->maskOptions.autoskip.value() : false;
 
     // onChange 事件
-    if (eventId == 110) {
-        std::shared_ptr<CaretString::CaretGravity> caretGravity =
-            isDelete ? std::make_shared<CaretString::CaretGravity>(CaretString::Backward(useAutoskip))
-                     : std::make_shared<CaretString::CaretGravity>(CaretString::Forward(useAutocomplete));
+    if (eventId == userData->node) {
+        std::shared_ptr<CaretString::CaretGravity> caretGravity = nullptr;
+        if (isDelete) {
+            caretGravity = std::make_shared<CaretString::Backward>(useAutoskip);
+        } else {
+            caretGravity = std::make_shared<CaretString::Forward>(useAutocomplete);
+        }
         CaretString text(content, content.length(), caretGravity);
         try {
             auto maskObj = self->pickMask(text, userData->maskOptions, userData->primaryFormat);
@@ -58,6 +61,9 @@ void myEventReceiver(ArkUI_NodeEvent *event) {
             std::string resultString = result.formattedText.string;
             DLOG(INFO) << "mask result complete: " << result.complete;
             userData->lastInputText = resultString;
+            if (isDelete) {
+                content = resultString;
+            }
             std::string finalString = isDelete ? content : resultString;
             ArkUI_AttributeItem item{.string = finalString.c_str()};
             userData->lastInputText = finalString;
@@ -193,7 +199,7 @@ void RNTextInputMask::setMask(int reactNode, std::string primaryFormat, MaskOpti
                                            .node = reactNode,
                                            .instance = this});
         NativeNodeApi::getInstance()->registerNodeEvent(textInputNode->getArkUINodeHandle(), NODE_TEXT_INPUT_ON_CHANGE,
-                                                        110, textInputNode);
+                                                        reactNode, textInputNode);
         NativeNodeApi::getInstance()->registerNodeEvent(textInputNode->getArkUINodeHandle(), NODE_ON_FOCUS, 111,
                                                         textInputNode);
         this->m_userDatas.insert(userData);

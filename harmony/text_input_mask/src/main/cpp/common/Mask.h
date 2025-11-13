@@ -42,6 +42,9 @@ public:
         this->initialState = Compiler(this->customNotations).compile(this->format);
     }
 
+   bool hasSameCustomNotations(const std::vector<Notation>& targetNotations) const {
+        return this->customNotations == targetNotations;
+    }
 
     class MaskFactory {
     public:
@@ -60,7 +63,7 @@ public:
         static std::shared_ptr<Mask> getOrCreate(const std::string &format,
                                                  const std::vector<Notation> &customNotations) {
             auto cachedMask = maskCache.find(format);
-            if (cachedMask == maskCache.end()) {
+            if (cachedMask == maskCache.end() || !cachedMask->second->hasSameCustomNotations(customNotations)) {
                 auto newMask = std::make_shared<Mask>(format, customNotations);
                 maskCache[format] = newMask;
                 return newMask;
